@@ -8,7 +8,7 @@
 
 #ce ----------------------------------------------------------------------------
 
-#AutoIt3Wrapper_icon=targets-io.ico
+#AutoIt3Wrapper_icon=perfana.ico
 #include "ADO.au3"
 #include <Array.au3>
 

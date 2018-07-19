@@ -7,7 +7,7 @@
 	Launcher for LoadRunner automation
 
 #ce ----------------------------------------------------------------------------
-#AutoIt3Wrapper_Icon=targets-io.ico
+#AutoIt3Wrapper_Icon=perfana.ico
 #AutoIt3Wrapper_Change2CUI=y
 #include <Date.au3>
 #include <Array.au3>
@@ -19,20 +19,20 @@ Global $sProxy = $aIEproxy[2]
 
 If $CmdLine[0] = 5 Then ; Jenkins mode!
 	$sScenarioPath = $CmdLine[1]
-	$sDashboardName = $CmdLine[2]
+	$sTestType = $CmdLine[2]
 	$sTestrunId = $CmdLine[3]
-	$sBuildResultsUrl = $CmdLine[4]
+	$sCIBuildResultsUrl = $CmdLine[4]
 	$sRunMode = $CmdLine[5]
 ElseIf $CmdLine[0] = 2 Then ; standalone mode
 	$sScenarioPath = $CmdLine[1]
-	$sDashboardName = $CmdLine[2]
+	$sTestType = $CmdLine[2]
 	$sTestrunId = "LOADRUNNER-" & StringReplace(_DateTimeFormat(_NowCalc(), 2), "/", "-") & "-" & Random(1, 99999, 1)
-	$sBuildResultsUrl = ""
+	$sCIBuildResultsUrl = ""
 	$sRunMode = "standalone"
 Else ; invalid amount of command line  parameters entered
 	ConsoleWriteError("Please provide two or five command line parameter(s):" & @CRLF & @CRLF)
-	ConsoleWriteError("LRlauncher.exe <path to scenario file> <DashboardName>" & @CRLF & @CRLF & "or Jenkins mode:" & @CRLF)
-	ConsoleWriteError("LRlauncher.exe <path to scenario file> <DashboardName> <TestrunId> <BuildResultsUrl> <standalone|parallel>" & @CRLF & @CRLF)
+	ConsoleWriteError("LRlauncher.exe <path to scenario file> <ApplicationName>" & @CRLF & @CRLF & "or Jenkins mode:" & @CRLF)
+	ConsoleWriteError("LRlauncher.exe <path to scenario file> <ApplicationName> <TestrunId> <CIBuildResultsUrl> <standalone|parallel>" & @CRLF & @CRLF)
 	ConsoleWriteError("Please note: to be used LoadRunner scenario, the LoadRunner script directories and LRlauncher helper files should all be present in the same, current working directory or residing in a subdirectory." & @CRLF & @CRLF)
 	Exit 1
 EndIf
@@ -41,15 +41,17 @@ Global $sScenarioPathPrefix = DeterminePathPrefix($sScenarioPath)
 $sIni = StringTrimRight(@ScriptName, 3) & "ini"
 $sLRpath = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "LoadRunner", "LRpath", "C:\Program Files (x86)\HP\LoadRunner\bin\wlrun.exe")
 $nTimeout = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "LoadRunner", "TimeoutDefault", "90")
-$sHost = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "targets-io", "Host", "targets-io.klm.com")
-$nPort = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "targets-io", "Port", "10003")
-$nUseSSL = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "targets-io", "UseSSL", "1")
-$nUseProxy = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "targets-io", "UseProxy", "0")
-$sGraphiteHost = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "Graphite", "GraphiteHost", "172.21.42.178")
-$nGraphitePort = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "Graphite", "GraphitePort", "2113")
-$sProductName = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "targets-io", "ProductName", "LOADRUNNER")
-$sProductRelease = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "targets-io", "ProductRelease", "1.0")
-$nRampupPeriod = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "targets-io", "RampupPeriod", "10")
+$sHost = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "Perfana", "Host", "")
+$nPort = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "Perfana", "Port", "443")
+$nUseSSL = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "Perfana", "UseSSL", "1")
+$nUseProxy = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "Perfana", "UseProxy", "0")
+$sGraphiteHost = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "Graphite", "GraphiteHost", "")
+$nGraphitePort = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "Graphite", "GraphitePort", "")
+$sApplicationName = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "Perfana", "ApplicationName", "LOADRUNNER")
+$sApplicationRelease = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "Perfana", "ApplicationRelease", "1.0")
+$sTestType = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "Perfana", "TestType", "1.0")
+$sTestEnvironment = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "Perfana", "TestEnvironment", "1.0")
+$nRampupPeriod = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "Perfana", "RampupPeriod", "10")
 $nTimeZoneOffset = IniRead(@WorkingDir & $sScenarioPathPrefix & $sIni, "LR2Graphite", "TimeZoneOffset", "-1")
 
 If $nUseSSL = 1 Then
@@ -73,10 +75,10 @@ If FileExists(@WorkingDir & $sScenarioPathPrefix & "LRR\LRA") Then
 	EndIf
 EndIf
 
-; send start event to targets-io when run mode is not parallel
+; send start event to Perfana when run mode is not parallel
 If $sRunMode <> "parallel" Then
-	ConsoleWrite("Sending start event to targets-io using " & $sHost & ":" & $nPort & " ... ")
-	If Not SendJSONRunningTest("start", $sProductName, $sDashboardName, $sTestrunId, $sBuildResultsUrl, $sHost, $nPort, $sProductRelease, $nRampupPeriod) Then
+	ConsoleWrite("Sending start event to Perfana using " & $sHost & ":" & $nPort & " ... ")
+	If Not SendJSONRunningTest($sApplicationName, $sTestType, $sTestEnvironment, $sTestrunId, $sCIBuildResultsUrl, $sHost, $nPort, $sApplicationRelease, $nRampupPeriod, "false") Then
 		ConsoleWriteError("Sending start event unsuccessful." & @CRLF)
 		Exit 1
 	Else
@@ -102,11 +104,11 @@ EndIf
 
 ; wait until timeout
 $sTestStart = _NowCalc()
-If $sRunMode <> "parallel" Then ConsoleWrite("Sending keepalive events to targets-io during test: ")
+If $sRunMode <> "parallel" Then ConsoleWrite("Sending keepalive events to Perfana during test: ")
 While _DateDiff("s", $sTestStart, _NowCalc()) < $nTimeout * 60
 	Sleep(15000) ; keepalive interval 15sec by default
 	If $sRunMode <> "parallel" Then
-		SendJSONRunningTest("keepalive", $sProductName, $sDashboardName, $sTestrunId, $sBuildResultsUrl, $sHost, $nPort, $sProductRelease, $nRampupPeriod)
+		SendJSONRunningTest($sApplicationName, $sTestType, $sTestEnvironment, $sTestrunId, $sCIBuildResultsUrl, $sHost, $nPort, $sApplicationRelease, $nRampupPeriod, "false")
 		ConsoleWrite(".")
 	EndIf
 	If Not ProcessExists($iPid) Then ExitLoop
@@ -170,19 +172,19 @@ EndIf
 
 If WinExists("HP LoadRunner Controller") Then WinClose("HP LoadRunner Controller")
 
-; send end event to targets-io (at this point, otherwise if sooner targets-io is not able to calculate benchmark results)
+; send end event to Perfana (at this point, otherwise if sooner Perfana is not able to calculate benchmark results)
 If $sRunMode <> "parallel" Then
 	; an extra keepalive to solve timing issue for rare occasions when previous keepalive failed
-	SendJSONRunningTest("keepalive", $sProductName, $sDashboardName, $sTestrunId, $sBuildResultsUrl, $sHost, $nPort, $sProductRelease, $nRampupPeriod)
-	ConsoleWrite("Sending end event to targets-io." & @CRLF)
-	If Not SendJSONRunningTest("end", $sProductName, $sDashboardName, $sTestrunId, $sBuildResultsUrl, $sHost, $nPort, $sProductRelease, $nRampupPeriod) Then
-		ConsoleWriteError("Sending end event unsuccessful: test will have status incompleted in targets-io." & @CRLF)
+	SendJSONRunningTest($sApplicationName, $sTestType, $sTestEnvironment, $sTestrunId, $sCIBuildResultsUrl, $sHost, $nPort, $sApplicationRelease, $nRampupPeriod, "false")
+	ConsoleWrite("Sending end event to Perfana." & @CRLF)
+	If Not SendJSONRunningTest($sApplicationName, $sTestType, $sTestEnvironment, $sTestrunId, $sCIBuildResultsUrl, $sHost, $nPort, $sApplicationRelease, $nRampupPeriod, "true") Then
+		ConsoleWriteError("Sending end event unsuccessful." & @CRLF)
 	EndIf
 EndIf
 
 ; assertions
 If $sRunMode <> "parallel" Then
-	If Not AssertionRequest($sProductName, $sDashboardName, $sTestrunId) Then
+	If Not AssertionRequest($sApplicationName, $sTestType, $sTestEnvironment, $sTestrunId) Then
 		ConsoleWriteError("Failed on assertions." & @CRLF)
 		Exit 3 ; errorlevel 3 = assertions
 	Else
@@ -190,7 +192,7 @@ If $sRunMode <> "parallel" Then
 	EndIf
 EndIf
 
-Func SendJSONRunningTest($sEvent, $sProductName, $sDashboardName, $sTestrunId, $sBuildResultsUrl, $sHost, $nPort, $sProductRelease, $nRampupPeriod)
+Func SendJSONRunningTest($sApplicationName, $sTestType, $sTestEnvironment, $sTestrunId, $sCIBuildResultsUrl, $sHost, $nPort, $sApplicationRelease, $nRampupPeriod, $bCompleted)
 	; Initialize and get session handle
 	If $nUseProxy = 1 Then
 		$hOpen = _WinHttpOpen("Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.0", $WINHTTP_ACCESS_TYPE_NAMED_PROXY, $sProxy)
@@ -202,25 +204,33 @@ Func SendJSONRunningTest($sEvent, $sProductName, $sDashboardName, $sTestrunId, $
 	$hConnect = _WinHttpConnect($hOpen, $sHost, $nPort)
 
 	If $nUseSSL = 1 Then
-		$sReturned = _WinHttpSimpleSSLRequest($hConnect, "POST", "/running-test/" & $sEvent, Default, '{"testRunId": "' & $sTestrunId & '", ' & _
-				'"dashboardName": "' & $sDashboardName & '", ' & _
-				'"productName": "' & $sProductName & '", ' & _
-				'"buildResultsUrl": "' & $sBuildResultsUrl & '", ' & _
-				'"productRelease": "' & $sProductRelease & '", ' & _
-				'"rampUpPeriod": "' & $nRampupPeriod & '"}', "Content-Type: application/json" & @CR & "Cache-Control: no-cache" & @CR & "Connection: close")
+		$sReturned = _WinHttpSimpleSSLRequest($hConnect, "POST", "/test", Default, _
+				'{"testRunId": "' & $sTestrunId & '", ' & _
+				'"application": "' & $sApplicationName & '", ' & _
+				'"testType": "' & $sTestType & '", ' & _
+				'"testEnvironment": "' & $sTestEnvironment & '", ' & _
+				'"CIBuildResultsUrl": "' & $sCIBuildResultsUrl & '", ' & _
+				'"applicationRelease": "' & $sApplicationRelease & '", ' & _
+				'"rampUp": "' & $nRampupPeriod & '", ' & _
+				'"completed": ' & $bCompleted & '}', _
+				"Content-Type: application/json" & @CR & "Cache-Control: no-cache" & @CR & "Connection: close")
 	Else
-		$sReturned = _WinHttpSimpleRequest($hConnect, "POST", "/running-test/" & $sEvent, Default, '{"testRunId": "' & $sTestrunId & '", ' & _
-				'"dashboardName": "' & $sDashboardName & '", ' & _
-				'"productName": "' & $sProductName & '", ' & _
-				'"buildResultsUrl": "' & $sBuildResultsUrl & '", ' & _
-				'"productRelease": "' & $sProductRelease & '", ' & _
-				'"rampUpPeriod": "' & $nRampupPeriod & '"}', "Content-Type: application/json" & @CR & "Cache-Control: no-cache" & @CR & "Connection: close")
+		$sReturned = _WinHttpSimpleRequest($hConnect, "POST", "/test", Default, _
+				'{"testRunId": "' & $sTestrunId & '", ' & _
+				'"application": "' & $sApplicationName & '", ' & _
+				'"testType": "' & $sTestType & '", ' & _
+				'"testEnvironment": "' & $sTestEnvironment & '", ' & _
+				'"CIBuildResultsUrl": "' & $sCIBuildResultsUrl & '", ' & _
+				'"applicationRelease": "' & $sApplicationRelease & '", ' & _
+				'"rampUp": "' & $nRampupPeriod & '", ' & _
+				'"completed": ' & $bCompleted & '}', _
+				"Content-Type: application/json" & @CR & "Cache-Control: no-cache" & @CR & "Connection: close")
 	EndIf
 
 	If @error Then
 		_WinHttpCloseHandle($hConnect)
 		_WinHttpCloseHandle($hOpen)
- 		ConsoleWriteError("Targets-io event went wrong with error code: " & @error & @CRLF)
+ 		ConsoleWriteError("Perfana event went wrong with error code: " & @error & @CRLF)
 		Return False
 	EndIf
 
@@ -278,7 +288,7 @@ Func LrsScriptPaths($sFile)
 	Return True
 EndFunc   ;==>LrsScriptPaths
 
-Func AssertionRequest($sProductName, $sDashboardName, $sTestrunId)
+Func AssertionRequest($sApplicationName, $sTestType, $sTestEnvironment, $sTestrunId)
 	; Initialize and get session handle
 	If $nUseProxy = 1 Then
 		$hOpen = _WinHttpOpen("Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.0", $WINHTTP_ACCESS_TYPE_NAMED_PROXY, $sProxy)
@@ -290,9 +300,9 @@ Func AssertionRequest($sProductName, $sDashboardName, $sTestrunId)
 	$hConnect = _WinHttpConnect($hOpen, $sHost, $nPort)
 
 	If $nUseSSL = 1 Then
-		$sReceived = _WinHttpSimpleSSLRequest($hConnect, "GET", "/testrun/" & StringUpper($sProductName) & "/" & StringUpper($sDashboardName) & "/" & StringUpper($sTestrunId), Default, Default , "Content-Type: application/json" & @CR & "Cache-Control: no-cache" & @CR & "Connection: close")
+		$sReceived = _WinHttpSimpleSSLRequest($hConnect, "GET", "/get-benchmark-results/" & StringUpper($sApplicationName) & "/" & StringUpper($sTestrunId), Default, Default , "Content-Type: application/json" & @CR & "Cache-Control: no-cache" & @CR & "Connection: close")
 	Else
-		$sReceived = _WinHttpSimpleRequest($hConnect, "GET", "/testrun/" & StringUpper($sProductName) & "/" & StringUpper($sDashboardName) & "/" & StringUpper($sTestrunId), Default, Default , "Content-Type: application/json" & @CR & "Cache-Control: no-cache" & @CR & "Connection: close")
+		$sReceived = _WinHttpSimpleRequest($hConnect, "GET", "/get-benchmark-results/" & StringUpper($sApplicationName) & "/" & StringUpper($sTestrunId), Default, Default , "Content-Type: application/json" & @CR & "Cache-Control: no-cache" & @CR & "Connection: close")
 	EndIf
 
 	If @error Then
@@ -306,14 +316,14 @@ Func AssertionRequest($sProductName, $sDashboardName, $sTestrunId)
 	_WinHttpCloseHandle($hConnect)
 	_WinHttpCloseHandle($hOpen)
 
-	$aBenchmarkResultPreviousOK = _StringBetween($sReceived, '"benchmarkResultPreviousOK":', ',')
-	$aBenchmarkResultFixedOK = _StringBetween($sReceived, '"benchmarkResultFixedOK":', ',')
-	$aMeetsRequirement = _StringBetween($sReceived, '"meetsRequirement":', ',')
+	$aBenchmarkResultPreviousOK = _StringBetween($sReceived, '"benchmarkPreviousTestRun":', ',')
+	$aBenchmarkResultFixedOK = _StringBetween($sReceived, '"benchmarkBaselineTestRun":', ',')
+	$aMeetsRequirement = _StringBetween($sReceived, '"requirements":', ',')
 
 	If $aBenchmarkResultPreviousOK[0] = "false" Or $aBenchmarkResultFixedOK[0] = "false" Or $aMeetsRequirement[0] = "false" Then
-		If $aMeetsRequirement[0] = "false" Then $sReturn = "Requirements not met: " & $sProtocol & $sHost & ":" & $nPort & "/#!/requirements/" & StringUpper($sProductName) & "/" & StringUpper($sDashboardName) & "/" & StringUpper($sTestrunId) & "/failed/" & @CRLF
-		If $aBenchmarkResultPreviousOK[0] = "false" Then $sReturn += "Benchmark with previous test result failed: " & $sProtocol & $sHost & ":" & $nPort & "/#!/benchmark-previous-build/" & StringUpper($sProductName) & "/" & StringUpper($sDashboardName) & "/" & StringUpper($sTestrunId) & "/failed/" & @CRLF
-		If $aBenchmarkResultFixedOK[0] = "false" Then $sReturn += "Benchmark with fixed baseline failed: " & $sProtocol & $sHost & ":" & $nPort & "/#!/benchmark-fixed-baseline/" & StringUpper($sProductName) & "/" & StringUpper($sDashboardName) & "/" & StringUpper($sTestrunId) & "/failed/" & @CRLF
+		If $aMeetsRequirement[0] = "false" Then $sReturn = "Requirements not met: " & $sProtocol & $sHost & ":" & $nPort & "/#!/requirements/" & StringUpper($sApplicationName) & "/" & StringUpper($sTestType) & "/" & StringUpper($sTestrunId) & "/failed/" & @CRLF
+		If $aBenchmarkResultPreviousOK[0] = "false" Then $sReturn += "Benchmark with previous test result failed: " & $sProtocol & $sHost & ":" & $nPort & "/#!/benchmark-previous-build/" & StringUpper($sApplicationName) & "/" & StringUpper($sTestType) & "/" & StringUpper($sTestrunId) & "/failed/" & @CRLF
+		If $aBenchmarkResultFixedOK[0] = "false" Then $sReturn += "Benchmark with fixed baseline failed: " & $sProtocol & $sHost & ":" & $nPort & "/#!/benchmark-fixed-baseline/" & StringUpper($sApplicationName) & "/" & StringUpper($sTestType) & "/" & StringUpper($sTestrunId) & "/failed/" & @CRLF
 		ConsoleWrite($sReturn)
 		Return False
 	Else

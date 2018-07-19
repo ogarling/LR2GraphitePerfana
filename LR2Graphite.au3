@@ -7,7 +7,7 @@
 	LoadRunner response time metrics export to Graphite
 
 #ce ----------------------------------------------------------------------------
-#AutoIt3Wrapper_Icon=targets-io.ico
+#AutoIt3Wrapper_Icon=perfana.ico
 #include "ADO.au3"
 #include <Array.au3>
 
